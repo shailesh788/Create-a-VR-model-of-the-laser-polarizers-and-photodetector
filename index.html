@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>VR Laser Lab: Malus's Law</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            pointer-events: none;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h3>VR Laser Physics Demo</h3>
+        <p>The polarizer rotates automatically.<br>Observe the intensity change on the detector (Malus's Law).</p>
+    </div>
+
+    <!-- Import Three.js as an ES Module -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- 1. SETUP SCENE ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x202020);
+
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 10);
+        // Position camera at standing height (1.6m) looking at the table
+        camera.position.set(0, 1.6, 2);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true; // Enable VR
+        document.body.appendChild(renderer.domElement);
+        document.body.appendChild(VRButton.createButton(renderer));
+
+        // Add controls for Desktop users (so you can test without VR)
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 1, 0);
+        controls.update();
+
+        // Lighting
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(0, 5, 5);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
+
+        // --- 2. BUILD THE LAB EQUIPMENT ---
+
+        // A. The Optical Table
+        const tableGeometry = new THREE.BoxGeometry(2, 0.1, 1);
+        const tableMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.2 });
+        const table = new THREE.Mesh(tableGeometry, tableMaterial);
+        table.position.set(0, 1, 0); // Table is 1 meter high
+        scene.add(table);
+
+        // B. The Laser Source
+        const laserHousingGeo = new THREE.BoxGeometry(0.3, 0.1, 0.1);
+        const laserHousingMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+        const laserHousing = new THREE.Mesh(laserHousingGeo, laserHousingMat);
+        laserHousing.position.set(-0.8, 1.1, 0); // Left side of table
+        scene.add(laserHousing);
+
+        // C. The Polarizer (Rotatable)
+        const mountGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.2);
+        const mountMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const polarizerMount = new THREE.Mesh(mountGeo, mountMat);
+        polarizerMount.position.set(0, 1.1, 0); // Center
+        scene.add(polarizerMount);
+
+        // The actual filter lens
+        const lensGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.02, 32);
+        // Rotate cylinder to face the beam
+        lensGeo.rotateX(Math.PI / 2); 
+        const lensMat = new THREE.MeshPhysicalMaterial({ 
+            color: 0x444444, 
+            transparent: true, 
+            opacity: 0.8,
+            transmission: 0.5 
+        });
+        const polarizerLens = new THREE.Mesh(lensGeo, lensMat);
+        polarizerMount.add(polarizerLens); // Attach lens to mount
+
+        // Visual indicator on the polarizer (so we can see it spinning)
+        const indicator = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.2, 0.03), new THREE.MeshBasicMaterial({color: 0xffff00}));
+        polarizerLens.add(indicator);
+
+        // D. The Photodetector
+        const detectorGeo = new THREE.BoxGeometry(0.1, 0.2, 0.1);
+        const detectorMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        const detector = new THREE.Mesh(detectorGeo, detectorMat);
+        detector.position.set(0.8, 1.15, 0); // Right side
+        scene.add(detector);
+
+        // --- 3. DYNAMIC ELEMENTS (LASER BEAMS & TEXT) ---
+
+        // Beam 1: Laser to Polarizer (Always 100% bright)
+        const beam1Geo = new THREE.CylinderGeometry(0.005, 0.005, 0.8);
+        beam1Geo.rotateZ(Math.PI / 2);
+        const beamMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
+        const beam1 = new THREE.Mesh(beam1Geo, beamMat);
+        beam1.position.set(-0.4, 1.1, 0); // Midpoint between laser and polarizer
+        scene.add(beam1);
+
+        // Beam 2: Polarizer to Detector (Intensity changes)
+        const beam2Geo = new THREE.CylinderGeometry(0.005, 0.005, 0.8);
+        beam2Geo.rotateZ(Math.PI / 2);
+        const beam2Mat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
+        const beam2 = new THREE.Mesh(beam2Geo, beam2Mat);
+        beam2.position.set(0.4, 1.1, 0); // Midpoint between polarizer and detector
+        scene.add(beam2);
+
+        // Digital Display (Canvas Texture)
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        const displayTexture = new THREE.CanvasTexture(canvas);
+        
+        const displayScreen = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.15, 0.08),
+            new THREE.MeshBasicMaterial({ map: displayTexture })
+        );
+        displayScreen.position.set(0, 0, 0.051); // Slightly in front of detector box
+        detector.add(displayScreen);
+
+        // --- 4. PHYSICS & ANIMATION LOOP ---
+
+        function updatePhysics() {
+            // 1. Rotate the Polarizer (Animation)
+            // In a full app, you would link this to VR Controller rotation
+            polarizerLens.rotation.z += 0.01;
+
+            // 2. Calculate Angle
+            // Normalize angle between 0 and PI
+            let angle = polarizerLens.rotation.z % Math.PI;
+            
+            // 3. Apply Malus's Law: I = I0 * cos^2(theta)
+            // We assume the incoming laser is vertically polarized (angle 0 is max)
+            // Note: Since our indicator is vertical at 0 rotation, we use Cos directly.
+            let intensity = Math.pow(Math.cos(angle), 2);
+
+            // 4. Update Visuals
+            
+            // Dim the second beam based on intensity
+            beam2.material.opacity = intensity * 0.8; // 0.8 is max opacity
+            
+            // Update the text on the detector
+            ctx.fillStyle = '#000000'; // Black background
+            ctx.fillRect(0, 0, 256, 128);
+            ctx.fillStyle = '#ff0000'; // Red Text
+            ctx.font = '40px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            let power = (intensity * 100).toFixed(1);
+            ctx.fillText(power + " mW", 128, 64);
+            
+            displayTexture.needsUpdate = true;
+        }
+
+        function animate() {
+            renderer.setAnimationLoop(function () {
+                updatePhysics();
+                renderer.render(scene, camera);
+            });
+        }
+
+        animate();
+
+        // Handle Window Resize
+        window.addEventListener('resize', onWindowResize, false);
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>
